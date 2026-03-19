@@ -191,4 +191,4 @@ It is not tied to any specific domain.
 
 ## License
 
-MIT (or your preferred license)
+MIT
