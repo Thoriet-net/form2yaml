@@ -1,0 +1,13 @@
+# runtime data
+/snapshots/
+
+# python
+__pycache__/
+*.pyc
+
+# local env
+.env
+.venv/
+
+# OS bordel
+.DS_Store

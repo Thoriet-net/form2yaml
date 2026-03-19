@@ -1,0 +1,163 @@
+meta_version: 1
+id: example_basic
+name: Example Basic Template
+
+sections:
+  general:
+    label: General settings
+    enabled_by_default: true
+    fields:
+      app_name:
+        label: Application name
+        type: string
+        required: true
+        placeholder: "e.g. demo-app"
+
+      environment:
+        label: Environment
+        type: select
+        required: true
+        options: [dev, test, prod]
+        default: dev
+
+      owner:
+        label: Owner
+        type: string
+        required: false
+        placeholder: "e.g. team-platform"
+
+      enabled:
+        label: Enabled
+        type: bool
+        required: false
+        default: true
+
+      replicas:
+        label: Replicas
+        type: int
+        required: false
+        default: 1
+        min: 1
+        max: 10
+
+      notes:
+        label: Notes
+        type: textarea
+        required: false
+        placeholder: "Optional free-form notes"
+
+  image:
+    label: Container image
+    enabled_by_default: true
+    fields:
+      repository:
+        label: Repository
+        type: string
+        required: true
+        placeholder: "e.g. ghcr.io/example/demo-app"
+
+      tag:
+        label: Tag
+        type: string
+        required: true
+        default: latest
+        placeholder: "e.g. 1.0.0"
+
+      pull_policy:
+        label: Pull policy
+        type: select
+        required: true
+        options: [Always, IfNotPresent, Never]
+        default: IfNotPresent
+
+  service:
+    label: Service settings
+    enabled_by_default: true
+    fields:
+      service_type:
+        label: Service type
+        type: select
+        required: true
+        options: [ClusterIP, NodePort, LoadBalancer]
+        default: ClusterIP
+
+      port:
+        label: Service port
+        type: int
+        required: true
+        default: 8080
+        min: 1
+        max: 65535
+
+      target_port:
+        label: Target port
+        type: int
+        required: true
+        default: 8080
+        min: 1
+        max: 65535
+
+      expose_metrics:
+        label: Expose metrics
+        type: bool
+        required: false
+        default: false
+
+      metrics_path:
+        label: Metrics path
+        type: string
+        required: false
+        default: /metrics
+        show_if:
+          field: expose_metrics
+          equals: "true"
+
+  env_vars:
+    label: Environment variables
+    enabled_by_default: false
+    repeatables:
+      items:
+        label: Variables
+        min_items: 0
+        max_items: 20
+        item_label: "Variable"
+        fields:
+          name:
+            label: Name
+            type: string
+            required: true
+            placeholder: "e.g. LOG_LEVEL"
+
+          value:
+            label: Value
+            type: string
+            required: true
+            placeholder: "e.g. debug"
+
+  volumes:
+    label: Volumes
+    enabled_by_default: false
+    repeatables:
+      items:
+        label: Volume mounts
+        min_items: 0
+        max_items: 10
+        item_label: "Volume"
+        fields:
+          name:
+            label: Volume name
+            type: string
+            required: true
+            placeholder: "e.g. app-config"
+
+          mount_path:
+            label: Mount path
+            type: string
+            required: true
+            placeholder: "e.g. /app/config"
+
+          read_only:
+            label: Read only
+            type: bool
+            required: false
+            default: true

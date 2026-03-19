@@ -1,0 +1,50 @@
+---
+app:
+  name: {{ general.app_name | y }}
+  environment: {{ general.environment | y }}
+  enabled: {{ general.enabled | y }}
+{% if general.owner %}
+  owner: {{ general.owner | y }}
+{% endif %}
+{% if general.notes %}
+  notes: {{ general.notes | y }}
+{% endif %}
+
+deployment:
+  replicas: {{ general.replicas }}
+  image:
+    repository: {{ image.repository | y }}
+    tag: {{ image.tag | y }}
+    pullPolicy: {{ image.pull_policy | y }}
+
+service:
+  type: {{ service.service_type | y }}
+  port: {{ service.port }}
+  targetPort: {{ service.target_port }}
+
+{% if service.expose_metrics %}
+metrics:
+  enabled: true
+  path: {{ service.metrics_path | y }}
+{% endif %}
+
+{% if sections.env_vars and env_vars.items %}
+env:
+{% for item in env_vars.items %}
+{% if item.get('name') %}
+  - name: {{ item.get('name') | y }}
+    value: {{ item.get('value') | y }}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{% if sections.volumes and volumes.items %}
+volumes:
+{% for item in volumes.items %}
+{% if item.get('name') %}
+  - name: {{ item.get('name') | y }}
+    mountPath: {{ item.get('mount_path') | y }}
+    readOnly: {{ item.get('read_only') | y }}
+{% endif %}
+{% endfor %}
+{% endif %}

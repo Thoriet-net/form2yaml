@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ template_name }} | form2yaml</title>
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}">
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <h1>{{ meta.name }} <span class="pill">{{ template_name }}</span></h1>
+        <div class="sub">Sections can be hidden or disabled. Preview and download the generated YAML.</div>
+      </div>
+      <div style="padding-top:2px;"><a href="/">← back</a></div>
+    </div>
+
+    <div class="cols">
+      <div>
+        {% if meta.always %}
+        <div class="card">
+          <h2>Always (fixed)</h2>
+          <div class="muted">
+            {% for k, v in meta.always.items() %}
+              <div><code>{{ k }}</code>: {{ v }}</div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        <div class="card">
+          <h2>Form</h2>
+
+          {% if save_message %}
+            <div class="ok">{{ save_message }}</div>
+          {% endif %}
+
+          <form method="post" id="main-form">
+            <div class="grid" style="margin-bottom:14px;">
+              <label for="snapshot_name">Saved snapshots</label>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <select id="snapshot_name" class="ctl">
+                  <option value="">-- select snapshot --</option>
+                  {% for snap in snapshot_names or [] %}
+                    <option value="{{ snap }}" {% if current_snapshot_name == snap %}selected{% endif %}>{{ snap }}</option>
+                  {% endfor %}
+                </select>
+                <button type="button" class="mini" onclick="loadSnapshot()">Load</button>
+                <button type="button" class="mini btn-danger" onclick="deleteSnapshot()">Delete</button>
+              </div>
+            </div>
+            <div class="actions" style="margin: 10px 0 14px 0;">
+              <button class="btn-primary" type="submit" formaction="/template/{{ template_name }}/preview">Preview YAML</button>
+              <button type="submit" formaction="/template/{{ template_name }}/generate">Download YAML</button>
+              <button type="submit" data-save-snapshot formaction="/template/{{ template_name }}/save">💾 Save snapshot</button>
+              <span class="muted">Disabled sections are not submitted. Hidden __count is always submitted.</span>
+            </div>
+            <div class="grid" style="margin-bottom:14px;">
+              <label for="device_name">Configuration name</label>
+              <input
+                id="device_name"
+                name="device_name"
+                type="text"
+                class="ctl"
+                value="{{ values.get('device_name', '') }}"
+                placeholder="e.g. my-config-01"
+              />
+            </div>
+            {% for sec_key, sec in meta.sections.items() %}
+              {% set enabled = sections_enabled.get(sec_key) %}
+              <div class="sec" data-section="{{ sec_key }}">
+                <div class="sec-head">
+                  <div>
+                    <strong>{{ sec.label or sec_key }}</strong>
+                    <div class="hint">section: <code>{{ sec_key }}</code></div>
+                  </div>
+
+                  <label class="toggle">
+                    <input
+                      type="checkbox"
+                      name="section__{{ sec_key }}"
+                      data-section-toggle="{{ sec_key }}"
+                      {% if enabled %}checked{% endif %}
+                    >
+                    enabled
+                  </label>
+                </div>
+
+                <div class="sec-body" data-section-body="{{ sec_key }}">
+                  <div class="grid">
+                    {% for field_key, f in (sec.get('fields') or {}).items() %}
+                      {% if not (f.hidden|default(false)) %}
+                        {% set full = sec_key ~ '.' ~ field_key %}
+
+                        {% set v = values.get(full) %}
+                        {% if v is none %}
+                          {% if f.const is defined %}{% set v = f.const %}
+                          {% elif f.default is defined %}{% set v = f.default %}
+                          {% else %}{% set v = '' %}
+                          {% endif %}
+                        {% endif %}
+
+                        {% set readonly = (f.readonly|default(false)) or (f.const is defined) or (f.computed is defined) %}
+
+                        <label for="{{ sec_key }}__{{ field_key }}">
+                          {{ f.label or field_key }}
+                          {% if f.required %}<span class="muted">(required)</span>{% endif %}
+                          {% if f.const is defined %}<span class="muted">(fixed)</span>{% endif %}
+                          {% if f.computed is defined %}<span class="muted">(auto)</span>{% endif %}
+                        </label>
+
+                        {% if f.type == 'select' and f.options %}
+                          <select
+                            id="{{ sec_key }}__{{ field_key }}"
+                            name="{{ full }}"
+                            class="ctl"
+                            data-section-input="{{ sec_key }}"
+                            {% if f.get('show_if') %}data-show-if="{{ f.show_if.field }}" data-show-eq="{{ f.show_if.equals }}"{% endif %}
+                            {% if readonly %}disabled{% endif %}
+                          >
+                            <option value="" disabled {% if v == '' %}selected{% endif %}>-- select --</option>
+                            {% for opt in f.options %}
+                              <option value="{{ opt }}" {% if v == opt %}selected{% endif %}>{{ opt }}</option>
+                            {% endfor %}
+                          </select>
+                          {% if readonly %}
+                            <input type="hidden" name="{{ full }}" value="{{ v }}">
+                          {% endif %}
+
+                        {% elif f.type == 'bool' %}
+                          <div style="display:flex; align-items:center; gap:10px;" data-section-input="{{ sec_key }}">
+                            <input
+                              id="{{ sec_key }}__{{ field_key }}"
+                              name="{{ full }}"
+                              type="checkbox"
+                              value="true"
+                              data-section-input="{{ sec_key }}"
+                              {% if f.get('show_if') %}data-show-if="{{ f.show_if.field }}" data-show-eq="{{ f.show_if.equals }}"{% endif %}
+                              {% if v in [true, 'true', 'True', 1, '1', 'on'] %}checked{% endif %}
+                              {% if readonly %}disabled{% endif %}
+                            />
+                            <span class="muted">{{ f.get('help','') }}</span>
+                          </div>
+                          {% if readonly %}
+                            <input type="hidden" name="{{ full }}" value="{{ 'true' if v else 'false' }}">
+                          {% endif %}
+
+                        {% elif f.type == 'int' %}
+                          <input
+                            id="{{ sec_key }}__{{ field_key }}"
+                            name="{{ full }}"
+                            type="number"
+                            class="ctl"
+                            value="{{ v }}"
+                            min="{{ f.get('min','') }}"
+                            max="{{ f.get('max','') }}"
+                            placeholder="{{ f.get('placeholder','') }}"
+                            data-section-input="{{ sec_key }}"
+                            {% if f.get('show_if') %}data-show-if="{{ f.show_if.field }}" data-show-eq="{{ f.show_if.equals }}"{% endif %}
+                            {% if readonly %}readonly{% endif %}
+                          />
+
+                        {% elif f.type == 'textarea' %}
+                          <div style="grid-column: 1 / -1;">
+                          <textarea
+                            id="{{ sec_key }}__{{ field_key }}"
+                            name="{{ full }}"
+                            class="ctl"
+                            placeholder="{{ f.get('placeholder','') }}"
+                            data-section-input="{{ sec_key }}"
+                            data-field-type="textarea"
+                            {% if readonly %}readonly{% endif %}
+                          >{{ v }}</textarea>
+                          </div>
+
+                        {% else %}
+                          <input
+                            id="{{ sec_key }}__{{ field_key }}"
+                            name="{{ full }}"
+                            type="text"
+                            class="ctl"
+                            value="{{ v }}"
+                            placeholder="{{ f.get('placeholder','') }}"
+                            data-section-input="{{ sec_key }}"
+                            data-field-type="{{ f.type }}"
+                            {% if f.get('show_if') %}data-show-if="{{ f.show_if.field }}" data-show-eq="{{ f.show_if.equals }}"{% endif %}
+                            {% if readonly %}readonly{% endif %}
+                          />
+                        {% endif %}
+                      {% endif %}
+                    {% endfor %}
+                  </div>
+
+                  {% set rdefs = sec.get('repeatables') or {} %}
+                  {% for rkey, rdef in rdefs.items() %}
+                    {% if not (rdef.hidden|default(false)) %}
+                      {% set min_items = (rdef.get('min_items', 0) | int) %}
+                      {% set max_items = (rdef.get('max_items', 50) | int) %}
+                      {% set items_count = (values.get(sec_key ~ '.' ~ rkey ~ '.__count', min_items) | int) %}
+
+                      <div class="rlist" data-rlist="{{ sec_key }}.{{ rkey }}" data-min="{{ min_items }}" data-max="{{ max_items }}">
+                        <div class="sec-head" style="margin-top:14px;">
+                          <div>
+                            <strong>{{ rdef.label or rkey }}</strong>
+                            <div class="hint">list: <code>{{ sec_key }}.{{ rkey }}</code></div>
+                          </div>
+
+                          <div style="display:flex; gap:6px;">
+                            <button type="button" class="mini" data-radd="{{ sec_key }}.{{ rkey }}">+ Add</button>
+                            <button type="button" class="mini btn-danger" data-rdel="{{ sec_key }}.{{ rkey }}">Delete last</button>
+                          </div>
+                        </div>
+
+                        <input
+                          type="hidden"
+                          name="{{ sec_key }}.{{ rkey }}.__count"
+                          value="{{ items_count }}"
+                          data-rcount="{{ sec_key }}.{{ rkey }}"
+                        />
+
+                        {% for idx in range(items_count) %}
+                          <div class="ritem" data-ritem="{{ sec_key }}.{{ rkey }}" data-idx="{{ idx }}">
+                            <div class="ritem-head">
+                              <div>
+                                <strong>{{ rdef.item_label or 'Item' }} {{ idx + 1 }}</strong>
+                                <span class="pill">#{{ idx }}</span>
+                              </div>
+                            </div>
+
+                            <div class="grid" style="margin-top:12px;">
+                              {% for fkey, f in (rdef.get('fields') or {}).items() %}
+                                {% if not (f.hidden|default(false)) %}
+                                  {% set full = sec_key ~ '.' ~ rkey ~ '.' ~ idx ~ '.' ~ fkey %}
+
+                                  {% set v = values.get(full) %}
+                                  {% if v is none %}
+                                    {% if f.const is defined %}{% set v = f.const %}
+                                    {% elif f.default is defined %}{% set v = f.default %}
+                                    {% else %}{% set v = '' %}
+                                    {% endif %}
+                                  {% endif %}
+
+                                  <label for="{{ sec_key }}__{{ rkey }}__{{ idx }}__{{ fkey }}">
+                                    {{ f.label or fkey }}
+                                    {% if f.required %}<span class="muted">(required)</span>{% endif %}
+                                  </label>
+
+                                  {% if f.type == 'select' and f.options %}
+                                    <select
+                                      id="{{ sec_key }}__{{ rkey }}__{{ idx }}__{{ fkey }}"
+                                      name="{{ full }}"
+                                      class="ctl"
+                                      data-section-input="{{ sec_key }}"
+                                      data-rfield="{{ sec_key }}.{{ rkey }}"
+                                      data-idx="{{ idx }}"
+                                      {% if f.get('show_if') %}data-show-if="{{ f.show_if.field }}" data-show-eq="{{ f.show_if.equals }}"{% endif %}
+                                    >
+                                      <option value="" disabled {% if v == '' %}selected{% endif %}>-- select --</option>
+                                      {% for opt in f.options %}
+                                        <option value="{{ opt }}" {% if v == opt %}selected{% endif %}>{{ opt }}</option>
+                                      {% endfor %}
+                                    </select>
+
+                                  {% elif f.type == 'bool' %}
+                                    <div style="display:flex; align-items:center; gap:10px;">
+                                      <input
+                                        id="{{ sec_key }}__{{ rkey }}__{{ idx }}__{{ fkey }}"
+                                        name="{{ full }}"
+                                        type="checkbox"
+                                        value="true"
+                                        data-section-input="{{ sec_key }}"
+                                        data-rfield="{{ sec_key }}.{{ rkey }}"
+                                        data-idx="{{ idx }}"
+                                        {% if f.get('show_if') %}data-show-if="{{ f.show_if.field }}" data-show-eq="{{ f.show_if.equals }}"{% endif %}
+                                        {% if v in [true, 'true', 'True', 1, '1', 'on'] %}checked{% endif %}
+                                      />
+                                      <span class="muted">{{ f.get('help','') }}</span>
+                                    </div>
+
+                                  {% elif f.type == 'int' %}
+                                    <input
+                                      id="{{ sec_key }}__{{ rkey }}__{{ idx }}__{{ fkey }}"
+                                      name="{{ full }}"
+                                      type="number"
+                                      class="ctl"
+                                      value="{{ v }}"
+                                      min="{{ f.get('min','') }}"
+                                      max="{{ f.get('max','') }}"
+                                      placeholder="{{ f.get('placeholder','') }}"
+                                      data-section-input="{{ sec_key }}"
+                                      data-rfield="{{ sec_key }}.{{ rkey }}"
+                                      data-idx="{{ idx }}"
+                                      {% if f.get('show_if') %}data-show-if="{{ f.show_if.field }}" data-show-eq="{{ f.show_if.equals }}"{% endif %}
+                                    />
+
+                                  {% elif f.type == 'textarea' %}
+                                    <textarea
+                                      id="{{ sec_key }}__{{ rkey }}__{{ idx }}__{{ fkey }}"
+                                      name="{{ full }}"
+                                      class="ctl"
+                                      placeholder="{{ f.get('placeholder','') }}"
+                                      data-section-input="{{ sec_key }}"
+                                      data-field-type="textarea"
+                                      {% if f.get('show_if') %}
+                                        data-show-if="{{ f.show_if.field }}"
+                                        data-show-eq="{{ f.show_if.equals }}"
+                                      {% endif %}
+                                    >{% if v %}{{ v }}{% endif %}</textarea>
+
+                                  {% else %}
+                                    <input
+                                      id="{{ sec_key }}__{{ rkey }}__{{ idx }}__{{ fkey }}"
+                                      name="{{ full }}"
+                                      type="text"
+                                      class="ctl"
+                                      value="{{ v }}"
+                                      placeholder="{{ f.get('placeholder','') }}"
+                                      data-section-input="{{ sec_key }}"
+                                      data-rfield="{{ sec_key }}.{{ rkey }}"
+                                      data-idx="{{ idx }}"
+                                      {% if f.get('show_if') %}data-show-if="{{ f.show_if.field }}" data-show-eq="{{ f.show_if.equals }}"{% endif %}
+                                    />
+                                  {% endif %}
+                                {% endif %}
+                              {% endfor %}
+                            </div>
+                          </div>
+                        {% endfor %}
+                      </div>
+                    {% endif %}
+                  {% endfor %}
+                </div>
+              </div>
+            {% endfor %}
+
+            <div class="actions">
+              <button class="btn-primary" type="submit" formaction="/template/{{ template_name }}/preview">Preview YAML</button>
+              <button type="submit" formaction="/template/{{ template_name }}/generate">Download YAML</button>
+              <button type="submit" formaction="/template/{{ template_name }}/save">💾 Save snapshot</button>
+              <span class="muted">Disabled sections are not submitted. Hidden __count is always submitted.</span>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h2>Preview</h2>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span id="copy-msg" class="muted hidden">Copied ✓</span>
+              <button type="button" class="mini" onclick="copyPreview()">Copy</button>
+            </div>
+          </div>
+
+          {% if error %}
+            <div class="err"><strong>Render error:</strong> {{ error }}</div>
+          {% endif %}
+
+          {% if preview_yaml %}
+            <pre>{{ preview_yaml }}</pre>
+          {% else %}
+            <div class="muted">Nothing yet. Fill out the form and click <strong>Preview YAML</strong>.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <script id="snapshot-data" type="application/json">{{ (snapshot_names or []) | tojson }}</script>
+    <script>
+      function setSectionEnabled(secKey, enabled) {
+        const body = document.querySelector(`[data-section-body="${secKey}"]`);
+        const inputs = document.querySelectorAll(`[data-section-input="${secKey}"]`);
+        if (body) body.style.display = enabled ? "" : "none";
+        inputs.forEach(inp => {
+          if (inp.type === "hidden") return;
+          inp.disabled = !enabled;
+        });
+      }
+
+      document.querySelectorAll('[data-section-toggle]').forEach(cb => {
+        const secKey = cb.getAttribute('data-section-toggle');
+        setSectionEnabled(secKey, cb.checked);
+        cb.addEventListener('change', () => setSectionEnabled(secKey, cb.checked));
+      });
+
+      function baseTemplatePath() {
+        return window.location.pathname.replace(/\/(preview|generate|save|load\/[^/]+)\/?$/, "");
+      }
+
+      function submitPreview() {
+        sessionStorage.setItem("scrollY", window.scrollY);
+
+        const form = document.getElementById("main-form");
+        form.setAttribute("action", baseTemplatePath() + "/preview");
+        form.submit();
+      }
+
+      document.addEventListener("click", (e) => {
+        const addBtn = e.target.closest("[data-radd]");
+        if (addBtn) {
+          const key = addBtn.getAttribute("data-radd");
+          const cnt = document.querySelector(`[data-rcount="${key}"]`);
+          const wrap = document.querySelector(`[data-rlist="${key}"]`);
+          if (!cnt || !wrap) return;
+
+          const max = parseInt(wrap.getAttribute("data-max") || "999", 10);
+          const v = parseInt(cnt.value || "0", 10);
+          if (v >= max) return;
+
+          cnt.value = String(v + 1);
+          submitPreview();
+          return;
+        }
+
+        const delBtn = e.target.closest("[data-rdel]");
+        if (delBtn) {
+          const key = delBtn.getAttribute("data-rdel");
+          const cnt = document.querySelector(`[data-rcount="${key}"]`);
+          const wrap = document.querySelector(`[data-rlist="${key}"]`);
+          if (!cnt || !wrap) return;
+
+          const min = parseInt(wrap.getAttribute("data-min") || "0", 10);
+          const v = parseInt(cnt.value || "0", 10);
+          if (v <= min) return;
+
+          cnt.value = String(v - 1);
+          submitPreview();
+          return;
+        }
+      });
+
+      function applyShowIf() {
+        document.querySelectorAll('[data-show-if]').forEach(el => {
+          const showIfField = el.getAttribute('data-show-if');
+          const eq = el.getAttribute('data-show-eq');
+
+          const idx = el.getAttribute('data-idx');
+          const listKey = el.getAttribute('data-rfield');
+
+          let ctrl = null;
+          if (idx !== null && listKey) {
+            const controllerName = `${listKey}.${idx}.${showIfField}`;
+            ctrl = document.querySelector(`[name="${controllerName}"]`);
+          } else {
+            const sec = el.getAttribute('data-section-input');
+            if (sec) ctrl = document.querySelector(`[name="${sec}.${showIfField}"]`);
+          }
+          if (!ctrl) return;
+
+          let val = "";
+          if (ctrl.tagName === "SELECT") val = ctrl.value;
+          else if (ctrl.type === "checkbox") val = ctrl.checked ? "true" : "false";
+          else val = ctrl.value;
+
+          const shouldShow = (String(val) === String(eq));
+          const id = el.getAttribute("id");
+          const label = id ? document.querySelector(`label[for="${id}"]`) : null;
+
+          if (label) label.style.display = shouldShow ? "" : "none";
+          el.style.display = shouldShow ? "" : "none";
+        });
+      }
+
+      document.addEventListener("change", (e) => {
+        if (!e.target) return;
+        if (e.target.tagName === "SELECT" || e.target.type === "checkbox") applyShowIf();
+      });
+
+      applyShowIf();
+
+      window.addEventListener("load", () => {
+        const y = sessionStorage.getItem("scrollY");
+        if (y !== null) {
+          window.scrollTo(0, parseInt(y, 10));
+          sessionStorage.removeItem("scrollY");
+        }
+      });
+
+      function copyPreview() {
+        const el = document.querySelector("pre");
+        const msg = document.getElementById("copy-msg");
+        if (!el) return;
+
+        navigator.clipboard.writeText(el.innerText).then(() => {
+          if (msg) {
+            msg.classList.remove("hidden");
+            setTimeout(() => msg.classList.add("hidden"), 2000);
+          }
+        });
+      }
+
+      function loadSnapshot() {
+        const sel = document.getElementById("snapshot_name");
+        if (!sel || !sel.value) return;
+
+        const base = baseTemplatePath();
+        window.location.href = `${base}/load/${encodeURIComponent(sel.value)}`;
+      }
+
+      function deleteSnapshot() {
+        const sel = document.getElementById("snapshot_name");
+        if (!sel || !sel.value) return;
+
+        const ok = confirm("Do you really want to delete this snapshot?");
+        if (!ok) return;
+
+        const form = document.getElementById("main-form");
+        form.setAttribute("action", `${baseTemplatePath()}/delete/${encodeURIComponent(sel.value)}`);
+        form.submit();
+      }
+
+      document.addEventListener("DOMContentLoaded", () => {
+        const snapshotDataEl = document.getElementById("snapshot-data");
+        let existingSnapshots = [];
+
+        if (snapshotDataEl) {
+          try {
+            existingSnapshots = JSON.parse(snapshotDataEl.textContent || "[]");
+          } catch (err) {
+            existingSnapshots = [];
+          }
+        }
+
+        document.querySelectorAll("[data-save-snapshot]").forEach((btn) => {
+          btn.addEventListener("click", (e) => {
+            const deviceInput = document.querySelector('[name="device_name"]');
+            if (!deviceInput) return;
+
+            const name = deviceInput.value.trim();
+            if (!name) return;
+
+            if (existingSnapshots.includes(name)) {
+              const ok = confirm("Snapshot already exists. Do you really want to overwrite it?");
+              if (!ok) {
+                e.preventDefault();
+              }
+            }
+          });
+        });
+      });
+    </script>
+  </div>
+</body>
+</html>

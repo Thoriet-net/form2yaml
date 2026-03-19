@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>form2yaml</title>
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=1">
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <h1>form2yaml <span class="pill">local</span></h1>
+        <div class="sub">Select a template and open a dynamic form based on template.meta.yaml and a Jinja2 template.</div>
+      </div>
+      <div style="padding-top:2px;">
+        <span class="pill">templates mounted</span>
+      </div>
+    </div>
+
+    <div class="cols" style="grid-template-columns: minmax(520px, 1fr);">
+      <div>
+        <div class="card">
+          <h2>Template selection</h2>
+
+          <div class="hint" style="margin-bottom:10px;">
+            Loads <code>templates/&lt;name&gt;/template.meta.yaml</code> and renders the form.
+          </div>
+
+          <div class="sec" style="margin-top:0;">
+            <div class="grid" style="grid-template-columns: 220px 1fr;">
+              <label for="tpl">Template</label>
+
+              <select id="tpl" class="ctl">
+                <option value="" selected disabled>-- select --</option>
+                {% for name in template_names %}
+                  <option value="{{ name }}">{{ name }}</option>
+                {% endfor %}
+              </select>
+
+              <label class="muted">Action</label>
+              <div class="actions" style="margin-top:0;">
+                <button class="btn-primary" type="button" onclick="go()">Open</button>
+                <span class="muted">Opens <code>/template/&lt;name&gt;</code></span>
+              </div>
+            </div>
+          </div>
+
+          {% if template_names and template_names|length > 0 %}
+            <div class="hint" style="margin-top:12px;">
+              Found: <code>{{ template_names|length }}</code> templates
+            </div>
+          {% else %}
+            <div class="err" style="margin-top:12px;">
+              No templates found. Make sure the <code>templates</code> directory exists and contains at least one template.
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <script>
+      function go() {
+        const el = document.getElementById('tpl');
+        const v = el ? el.value : '';
+        if (!v) return;
+        window.location.href = `/template/${encodeURIComponent(v)}`;
+      }
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const active = document.activeElement;
+          if (active && active.id === 'tpl') {
+            e.preventDefault();
+            go();
+          }
+        }
+      });
+    </script>
+  </div>
+</body>
+</html>
